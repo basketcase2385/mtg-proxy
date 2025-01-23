@@ -1,5 +1,22 @@
 from flask import Flask, request, jsonify
 import requests
+import subprocess
+import sys
+
+# Function to check and install waitress if missing
+def ensure_waitress_installed():
+    try:
+        import waitress  # Try importing waitress
+    except ModuleNotFoundError:
+        print("Waitress not found. Installing now...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "waitress"])
+        import waitress  # Import again after installation
+
+# Ensure Waitress is installed
+ensure_waitress_installed()
+
+# Now, import Waitress
+from waitress import serve
 
 app = Flask(__name__)
 
@@ -12,9 +29,8 @@ def fetch_prices():
     if not card_names:
         return jsonify({"error": "card_names parameter is required"}), 400
 
-    # Forward request to the actual API
     response = requests.get(f"{API_BASE_URL}/fetch_prices", params={"card_names": card_names})
-    
+
     if response.status_code != 200:
         return jsonify({"error": "Failed to fetch data from MTG API"}), response.status_code
 
@@ -24,6 +40,6 @@ def fetch_prices():
 def health_check():
     return jsonify({"status": "Proxy server is running"}), 200
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-#new useless line
+# Start the Waitress production server
+if __name__ == "__main__":
+    serve(app, host="0.0.0.0", port=10000)
