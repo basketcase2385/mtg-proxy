@@ -108,23 +108,29 @@ def update_database(card_names: str = Query(..., description="Comma-separated li
 
 @app.post("/populate-database/")
 def populate_database():
-    """Fetch all card data from the main API and populate the PostgreSQL database in batches."""
+    """Fetch all card names from the main API, then request them in batches."""
+    print("🔍 Fetching all available card names from the API...")
 
-    print("🔍 Fetching all card data for database population...")
-    batch_size = 50  # ✅ Fetch 50 cards at a time to prevent overload
-
-    # ✅ Get the list of all available cards
+    # ✅ Step 1: Get a list of all available cards
     try:
-        response = requests.get(f"{API_SOURCE_URL}?card_names=all", timeout=120)  # ✅ Increased timeout
+        response = requests.get(f"{API_SOURCE_URL}?list_all_cards=true", timeout=120)
+        
         if response.status_code != 200:
-            print(f"⚠️ Failed to fetch full card list: {response.status_code}")
+            print(f"⚠️ Failed to fetch card list: {response.status_code}")
             return {"error": f"API request failed: {response.status_code}"}
 
-        all_card_names = response.json().keys()  # ✅ Extract card names from API response
+        all_card_names = response.json().get("all_cards", [])  # ✅ Expecting {"all_cards": ["Black Lotus", "Mox Emerald", ...]}
 
-        # ✅ Fetch and store data in batches
+        if not all_card_names:
+            print("❌ No cards found in the main API response.")
+            return {"error": "No cards found in API response."}
+
+        print(f"✅ Retrieved {len(all_card_names)} card names. Processing in batches...")
+
+        # ✅ Step 2: Fetch and store data in batches of 50
+        batch_size = 50
         for i in range(0, len(all_card_names), batch_size):
-            batch = ",".join(list(all_card_names)[i : i + batch_size])
+            batch = ",".join(all_card_names[i:i + batch_size])
             fetch_and_store_data(batch)
 
         print("✅ Database populated successfully!")
@@ -133,3 +139,4 @@ def populate_database():
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
         return {"error": str(e)}
+
