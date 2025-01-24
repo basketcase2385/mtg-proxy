@@ -1,45 +1,45 @@
-from flask import Flask, request, jsonify
 import requests
-import subprocess
-import sys
+from fastapi import FastAPI
+import sqlite3
 
-# Function to check and install waitress if missing
-def ensure_waitress_installed():
-    try:
-        import waitress  # Try importing waitress
-    except ModuleNotFoundError:
-        print("Waitress not found. Installing now...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "waitress"])
-        import waitress  # Import again after installation
+# Set up your existing API URL (the one from your current ngrok)
+API_SOURCE_URL = "https://your-existing-api.ngrok.io/full-dataset"
 
-# Ensure Waitress is installed
-ensure_waitress_installed()
+app = FastAPI()
 
-# Now, import Waitress
-from waitress import serve
+# Function to fetch and store data
+def fetch_and_store_data():
+    response = requests.get(API_SOURCE_URL)
+    data = response.json()  # Assuming the response is JSON
+    conn = sqlite3.connect("mtg_cards.db")
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS cards (
+        name TEXT,
+        set_name TEXT,
+        price REAL
+    )
+    """)
+    
+    cursor.executemany("INSERT INTO cards (name, set_name, price) VALUES (?, ?, ?)", 
+                        [(card["name"], card["set"], card["price"]) for card in data])
+    
+    conn.commit()
+    conn.close()
 
-app = Flask(__name__)
+# Fetch data on startup
+fetch_and_store_data()
 
-# Base URL for your MTG API
-API_BASE_URL = "https://mtgapp.ngrok.app"
-
-@app.route('/fetch_prices', methods=['GET'])
-def fetch_prices():
-    card_names = request.args.get('card_names')
-    if not card_names:
-        return jsonify({"error": "card_names parameter is required"}), 400
-
-    response = requests.get(f"{API_BASE_URL}/fetch_prices", params={"card_names": card_names})
-
-    if response.status_code != 200:
-        return jsonify({"error": "Failed to fetch data from MTG API"}), response.status_code
-
-    return response.json()
-
-@app.route('/', methods=['GET'])
-def health_check():
-    return jsonify({"status": "Proxy server is running"}), 200
-
-# Start the Waitress production server
-if __name__ == "__main__":
-    serve(app, host="0.0.0.0", port=10000)
+@app.get("/card/{card_name}")
+def get_card(card_name: str):
+    conn = sqlite3.connect("mtg_cards.db")
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM cards WHERE name = ?", (card_name,))
+    result = cursor.fetchone()
+    conn.close()
+    
+    if result:
+        return {"name": result[0], "set": result[1], "price": result[2]}
+    return {"error": "Card not found"}
