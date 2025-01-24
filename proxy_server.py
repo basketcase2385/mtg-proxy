@@ -32,7 +32,7 @@ create_table()  # Ensure table is created on startup
 
 def fetch_and_store_data():
     """Fetch card prices from the main API via Ngrok and store them in PostgreSQL."""
-    API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices/?card_names=Black%20Lotus,Mox%20Emerald"  # Example cards
+    API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices"
 
     try:
         response = requests.get(API_SOURCE_URL)
