@@ -3,11 +3,15 @@ import psycopg2
 import requests
 from fastapi import FastAPI, Query
 
-# ✅ Use the correct PostgreSQL URL from Render
+# ✅ PostgreSQL Database URL (Render)
 DATABASE_URL = "postgresql://mtg_database_user:yuy654YGIgOhE1w7jY5Mn2ZZ53K57YNX@dpg-cu9tv73tq21c739akumg-a.oregon-postgres.render.com/mtg_database"
+
+# ✅ Main API URL (Ensure this is correct)
+API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices/"
 
 app = FastAPI()
 
+# ✅ Database Connection Function
 def get_db_connection():
     """Establish a connection to the PostgreSQL database."""
     try:
@@ -17,8 +21,9 @@ def get_db_connection():
         print(f"❌ Database Connection Error: {e}")
         raise
 
+# ✅ Ensure the database table exists
 def create_table():
-    """Ensure the database table exists before storing data."""
+    """Create the 'cards' table if it doesn't exist."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -33,7 +38,6 @@ def create_table():
     cursor.close()
     conn.close()
 
-# ✅ Ensure the table is created on startup
 create_table()
 
 @app.get("/")
@@ -46,7 +50,6 @@ def get_card(card_name: str):
     """Fetch card details from PostgreSQL."""
     conn = get_db_connection()
     cursor = conn.cursor()
-
     cursor.execute("SELECT name, set_name, price FROM cards WHERE LOWER(name) = LOWER(%s)", (card_name,))
     result = cursor.fetchone()
     conn.close()
@@ -56,43 +59,47 @@ def get_card(card_name: str):
     
     return {"error": "Card not found"}
 
-# ✅ Define the main API URL to fetch card prices
-API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices/"
-
+# ✅ Fetch & Store Data in Batches to Prevent Overload
 def fetch_and_store_data(card_names: str):
-    """Fetch card prices dynamically from the main API and store them in PostgreSQL."""
-    api_url = f"{API_SOURCE_URL}?card_names={card_names.replace(' ', '%20')}"
+    """Fetch card prices in batches from the main API and store them in PostgreSQL."""
+    card_list = card_names.split(",")
+    batch_size = 50  # ✅ Fetch cards in batches of 50 to prevent timeouts
 
-    try:
-        response = requests.get(api_url, timeout=10)
-        print(f"🔍 API Response Status Code: {response.status_code}")
+    for i in range(0, len(card_list), batch_size):
+        batch = ",".join(card_list[i : i + batch_size])
+        api_url = f"{API_SOURCE_URL}?card_names={batch.replace(' ', '%20')}"
+        
+        try:
+            response = requests.get(api_url, timeout=120)  # ✅ Increased timeout
+            print(f"🔍 API Response Status Code: {response.status_code}")
 
-        if response.status_code != 200:
-            print(f"⚠️ Failed to fetch data: {response.status_code} - {response.text}")
-            return {"error": f"API request failed: {response.status_code}"}
+            if response.status_code != 200:
+                print(f"⚠️ Failed to fetch data: {response.status_code} - {response.text}")
+                return {"error": f"API request failed: {response.status_code}"}
 
-        data = response.json()
-        conn = get_db_connection()
-        cursor = conn.cursor()
+            store_data_in_db(response.json())  # ✅ Store batch results
 
-        for name, details in data.items():
-            cursor.execute("""
-                INSERT INTO cards (name, set_name, price)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (name) DO UPDATE SET 
-                set_name = EXCLUDED.set_name,
-                price = EXCLUDED.price
-            """, (name, details["set"], details["price"]))
+        except requests.exceptions.RequestException as e:
+            print(f"❌ API request failed: {str(e)}")
 
-        conn.commit()
-        cursor.close()
-        conn.close()
-        print("✅ Data successfully stored in PostgreSQL!")
-        return {"message": "Database updated successfully!"}
+def store_data_in_db(data):
+    """Insert fetched card prices into PostgreSQL."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
 
-    except requests.exceptions.RequestException as e:
-        print(f"❌ API request failed: {str(e)}")
-        return {"error": str(e)}
+    for name, details in data.items():
+        cursor.execute("""
+            INSERT INTO cards (name, set_name, price)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (name) DO UPDATE SET 
+            set_name = EXCLUDED.set_name,
+            price = EXCLUDED.price
+        """, (name, details.get("set", "Unknown Set"), details.get("price", 0.0)))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("✅ Data successfully stored in PostgreSQL!")
 
 @app.post("/update-database/")
 def update_database(card_names: str = Query(..., description="Comma-separated list of card names")):
@@ -101,33 +108,25 @@ def update_database(card_names: str = Query(..., description="Comma-separated li
 
 @app.post("/populate-database/")
 def populate_database():
-    """Fetch all card data from the main API and populate the PostgreSQL database."""
+    """Fetch all card data from the main API and populate the PostgreSQL database in batches."""
 
-    api_url = f"{API_SOURCE_URL}?card_names=all"  # Assuming API supports fetching all cards
+    print("🔍 Fetching all card data for database population...")
+    batch_size = 50  # ✅ Fetch 50 cards at a time to prevent overload
+
+    # ✅ Get the list of all available cards
     try:
-        response = requests.get(api_url, timeout=30)  # Increase timeout for large data
-        print(f"🔍 API Response Status Code: {response.status_code}")
-
+        response = requests.get(f"{API_SOURCE_URL}?card_names=all", timeout=120)  # ✅ Increased timeout
         if response.status_code != 200:
-            print(f"⚠️ Failed to fetch data: {response.status_code} - {response.text}")
+            print(f"⚠️ Failed to fetch full card list: {response.status_code}")
             return {"error": f"API request failed: {response.status_code}"}
 
-        data = response.json()
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        all_card_names = response.json().keys()  # ✅ Extract card names from API response
 
-        for name, details in data.items():
-            cursor.execute("""
-                INSERT INTO cards (name, set_name, price)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (name) DO UPDATE SET 
-                set_name = EXCLUDED.set_name,
-                price = EXCLUDED.price
-            """, (name, details["set"], details["price"]))
+        # ✅ Fetch and store data in batches
+        for i in range(0, len(all_card_names), batch_size):
+            batch = ",".join(list(all_card_names)[i : i + batch_size])
+            fetch_and_store_data(batch)
 
-        conn.commit()
-        cursor.close()
-        conn.close()
         print("✅ Database populated successfully!")
         return {"message": "Database populated successfully!"}
 
