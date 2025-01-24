@@ -107,12 +107,10 @@ def update_database(card_names: str = Query(..., description="Comma-separated li
     return fetch_and_store_data(card_names)
 
 @app.post("/populate-database/")
-@app.post("/populate-database/")
 def populate_database():
-    """Fetch all card names from the main API, then request them in batches."""
+    """Fetch all card names from the main API, then request their prices in batches."""
     print("🔍 Fetching all available card names from the API...")
 
-    # ✅ Step 1: Get a list of all available cards
     try:
         response = requests.get(f"{API_SOURCE_URL}?list_all_cards=true", timeout=120)
         
@@ -128,7 +126,7 @@ def populate_database():
 
         print(f"✅ Retrieved {len(all_card_names)} card names. Processing in batches...")
 
-        # ✅ Step 2: Fetch and store data in batches of 50
+        # ✅ Fetch and store data in batches of 50
         batch_size = 50
         for i in range(0, len(all_card_names), batch_size):
             batch = ",".join(all_card_names[i:i + batch_size])
