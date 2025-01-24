@@ -57,7 +57,7 @@ def get_card(card_name: str):
     return {"error": "Card not found"}
 
 # ✅ Define the main API URL to fetch card prices
-API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices"
+API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices/"
 
 def fetch_and_store_data(card_names: str):
     """Fetch card prices dynamically from the main API and store them in PostgreSQL."""
