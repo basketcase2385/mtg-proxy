@@ -6,10 +6,11 @@ from fastapi import FastAPI
 # PostgreSQL Database URL from Render
 DATABASE_URL = "postgresql://mtg_database_user:yuy654YGIgOhE1w7jY5Mn2ZZ53K57YNX@dpg-cu9tv73tq21c739akumg-a.oregon-postgres.render.com/mtg_database"
 
+# Define FastAPI app
 app = FastAPI()
 
 def get_db_connection():
-    """Establishes a connection to the PostgreSQL database."""
+    """Establish a connection to PostgreSQL."""
     return psycopg2.connect(DATABASE_URL, sslmode="require")
 
 def create_table():
@@ -30,8 +31,8 @@ def create_table():
 create_table()  # Ensure table is created on startup
 
 def fetch_and_store_data():
-    """Fetch card prices from the main API and store them in PostgreSQL."""
-    API_SOURCE_URL = "https://mtg-proxy.onrender.com/fetch_prices/?card_names=Black%20Lotus,Mox%20Emerald"  # Example cards
+    """Fetch card prices from the main API via Ngrok and store them in PostgreSQL."""
+    API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices/?card_names=Black%20Lotus,Mox%20Emerald"  # Example cards
 
     try:
         response = requests.get(API_SOURCE_URL)
@@ -93,8 +94,8 @@ def get_card(card_name: str):
 
 @app.post("/update-database/")
 def update_database():
-    """Fetch updated data from the main API and store it in PostgreSQL."""
-    API_SOURCE_URL = "https://mtg-proxy.onrender.com/fetch_prices/?card_names=Black%20Lotus,Mox%20Emerald"  # Example cards
+    """Fetch updated data from the main API via Ngrok and store it in PostgreSQL."""
+    API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices/?card_names=Black%20Lotus,Mox%20Emerald"  # Example cards
 
     try:
         response = requests.get(API_SOURCE_URL)
