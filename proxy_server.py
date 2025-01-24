@@ -107,6 +107,7 @@ def update_database(card_names: str = Query(..., description="Comma-separated li
     return fetch_and_store_data(card_names)
 
 @app.post("/populate-database/")
+@app.post("/populate-database/")
 def populate_database():
     """Fetch all card names from the main API, then request them in batches."""
     print("🔍 Fetching all available card names from the API...")
@@ -139,4 +140,3 @@ def populate_database():
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
         return {"error": str(e)}
-
