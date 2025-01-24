@@ -1,20 +1,22 @@
 import requests
 import psycopg2
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 
-# PostgreSQL Database URL from Render
-DATABASE_URL = "postgresql://mtg_database_user:yuy654YGIgOhE1w7jY5Mn2ZZ53K57YNX@dpg-cu9tv73tq21c739akumg-a.oregon-postgres.render.com/mtg_database"
+# ✅ PostgreSQL Database URL from Render
+DATABASE_URL = "postgresql://your_username:your_password@your-db-host:port/your_db_name"
 
-# Define FastAPI app
+# ✅ Main API URL (Ensure this is correct)
+API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices"
+
 app = FastAPI()
 
 def get_db_connection():
-    """Establish a connection to PostgreSQL."""
+    """Establish a connection to the PostgreSQL database."""
     return psycopg2.connect(DATABASE_URL, sslmode="require")
 
 def create_table():
-    """Ensures the database table exists."""
+    """Ensure the database table exists before storing data."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -28,29 +30,22 @@ def create_table():
     conn.commit()
     conn.close()
 
-create_table()  # Ensure table is created on startup
+# ✅ Ensure the table is created on startup
+create_table()
 
-def fetch_and_store_data():
-    """Fetch card prices from the main API via Ngrok and store them in PostgreSQL."""
-    API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices"
+def fetch_and_store_data(card_names: str):
+    """Fetch card prices dynamically from the main API and store them in PostgreSQL."""
+    api_url = f"{API_SOURCE_URL}?card_names={card_names.replace(' ', '%20')}"
 
     try:
-        response = requests.get(API_SOURCE_URL)
-
-        # Debugging: Check API response status
+        response = requests.get(api_url, timeout=10)  # Timeout after 10 seconds
         print(f"🔍 API Response Status Code: {response.status_code}")
 
-        # Ensure response is valid JSON
         if response.status_code != 200:
             print(f"⚠️ Failed to fetch data: {response.status_code} - {response.text}")
-            return
-        
-        try:
-            data = response.json()  # Convert response to JSON
-        except requests.exceptions.JSONDecodeError:
-            print("❌ Error: API response is not valid JSON!")
-            return
-        
+            return {"error": f"API request failed: {response.status_code}"}
+
+        data = response.json()
         conn = get_db_connection()
         cursor = conn.cursor()
 
@@ -66,11 +61,16 @@ def fetch_and_store_data():
         conn.commit()
         conn.close()
         print("✅ Data successfully stored in PostgreSQL!")
+        return {"message": "Database updated successfully!"}
 
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
+        return {"error": str(e)}
 
-fetch_and_store_data()
+@app.post("/update-database/")
+def update_database(card_names: str = Query(..., description="Comma-separated list of card names")):
+    """Fetch updated data for specific cards from the main API and store it in PostgreSQL."""
+    return fetch_and_store_data(card_names)
 
 @app.get("/")
 def home():
@@ -92,48 +92,7 @@ def get_card(card_name: str):
     
     return {"error": "Card not found"}
 
-@app.post("/update-database/")
-def update_database():
-    """Fetch updated data from the main API via Ngrok and store it in PostgreSQL."""
-    API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices/?card_names=Black%20Lotus,Mox%20Emerald"  # Example cards
-
-    try:
-        response = requests.get(API_SOURCE_URL)
-
-        # Debugging: Check API response status
-        print(f"🔍 API Response Status Code: {response.status_code}")
-
-        # Ensure response is valid JSON
-        if response.status_code != 200:
-            print(f"⚠️ Failed to fetch data: {response.status_code} - {response.text}")
-            return
-        
-        try:
-            data = response.json()  # Convert response to JSON
-        except requests.exceptions.JSONDecodeError:
-            print("❌ Error: API response is not valid JSON!")
-            return
-        
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        for name, details in data.items():
-            cursor.execute("""
-                INSERT INTO cards (name, set_name, price)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (name) DO UPDATE SET 
-                set_name = EXCLUDED.set_name,
-                price = EXCLUDED.price
-            """, (name, details["set"], details["price"]))
-
-        conn.commit()
-        conn.close()
-        return {"message": "Database updated successfully!"}
-
-    except requests.exceptions.RequestException as e:
-        return {"error": f"API request failed: {str(e)}"}
-
-# Ensure we bind to the correct port for Render
+# ✅ Ensure we bind to the correct port for Render
 PORT = int(os.getenv("PORT", 8000))
 
 if __name__ == "__main__":
