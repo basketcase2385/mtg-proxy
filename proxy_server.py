@@ -3,7 +3,7 @@ import psycopg2
 import requests
 from fastapi import FastAPI, Query
 
-# ✅ Use the correct Render PostgreSQL URL
+# ✅ Use the correct PostgreSQL URL from Render
 DATABASE_URL = "postgresql://mtg_database_user:yuy654YGIgOhE1w7jY5Mn2ZZ53K57YNX@dpg-cu9tv73tq21c739akumg-a.oregon-postgres.render.com/mtg_database"
 
 app = FastAPI()
@@ -56,6 +56,7 @@ def get_card(card_name: str):
     
     return {"error": "Card not found"}
 
+# ✅ Define the main API URL to fetch card prices
 API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices"
 
 def fetch_and_store_data(card_names: str):
@@ -98,3 +99,38 @@ def update_database(card_names: str = Query(..., description="Comma-separated li
     """Fetch updated data for specific cards from the main API and store it in PostgreSQL."""
     return fetch_and_store_data(card_names)
 
+@app.post("/populate-database/")
+def populate_database():
+    """Fetch all card data from the main API and populate the PostgreSQL database."""
+
+    api_url = f"{API_SOURCE_URL}?card_names=all"  # Assuming API supports fetching all cards
+    try:
+        response = requests.get(api_url, timeout=30)  # Increase timeout for large data
+        print(f"🔍 API Response Status Code: {response.status_code}")
+
+        if response.status_code != 200:
+            print(f"⚠️ Failed to fetch data: {response.status_code} - {response.text}")
+            return {"error": f"API request failed: {response.status_code}"}
+
+        data = response.json()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        for name, details in data.items():
+            cursor.execute("""
+                INSERT INTO cards (name, set_name, price)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (name) DO UPDATE SET 
+                set_name = EXCLUDED.set_name,
+                price = EXCLUDED.price
+            """, (name, details["set"], details["price"]))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("✅ Database populated successfully!")
+        return {"message": "Database populated successfully!"}
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ API request failed: {str(e)}")
+        return {"error": str(e)}
