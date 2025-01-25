@@ -41,7 +41,7 @@ def create_table():
 
 create_table()
 
-@app.get("/")
+@app.post("/")
 def home():
     """Health check endpoint."""
     return {"message": "MTG Proxy API is running with PostgreSQL!"}
@@ -55,14 +55,14 @@ def fetch_prices(request_body: PriceRequest):
     return fetch_and_store_data(request_body.card_names)
 
 def fetch_and_store_data(card_names: str):
-    """Fetch card prices from the main API using GET, store them in PostgreSQL, and return results."""
+    """Fetch card prices from the main API using POST, store them in PostgreSQL, and return results."""
 
-    # ✅ Encode names properly
-    encoded_names = quote(card_names, safe="|")  
-    api_url = f"{API_SOURCE_URL}/fetch_prices/?card_names={encoded_names}"  # ✅ Using GET
+    api_url = f"{API_SOURCE_URL}/fetch_prices/"  # ✅ Ensure POST is used
+    payload = {"card_names": card_names}  # ✅ JSON body for POST request
+    headers = {"Content-Type": "application/json"}  # ✅ Required header
 
     try:
-        response = requests.get(api_url, timeout=120)  # ✅ Send GET request
+        response = requests.post(api_url, json=payload, headers=headers, timeout=120)  # ✅ Send POST request
         print(f"🔍 API Response Status Code: {response.status_code}")
 
         if response.status_code != 200:
@@ -72,11 +72,13 @@ def fetch_and_store_data(card_names: str):
         data = response.json()  # ✅ Store the response
         store_data_in_db(data)  # ✅ Store the data in PostgreSQL
 
+        print("✅ Returning fetched data to requestor.")
         return data  # ✅ Return the fetched data to the caller
 
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
         return {"error": str(e)}
+
 
 def store_data_in_db(data):
     """Insert fetched card prices into PostgreSQL."""
@@ -99,7 +101,7 @@ def store_data_in_db(data):
 
 @app.post("/populate-database/")
 def populate_database():
-    """Fetch all card names from the main API, then request their prices in batches using GET."""
+    """Fetch all card names from the main API, then request their prices in a single POST request."""
     print("🔍 Fetching all available card names from the API...")
 
     try:
@@ -116,16 +118,17 @@ def populate_database():
             print("❌ No cards found in the main API response.")
             return {"error": "No cards found in API response."}
 
-        print(f"✅ Retrieved {len(all_card_names)} card names. Processing in batches...")
+        print(f"✅ Retrieved {len(all_card_names)} card names. Sending a single POST request...")
 
-        # ✅ Step 2: Fetch and store data in batches of 50 using GET
-        batch_size = 50
-        for i in range(0, len(all_card_names), batch_size):
-            batch = "|".join(all_card_names[i:i + batch_size])  # ✅ Use `|` instead of `,`
-            print(f"🔄 Processing batch {i // batch_size + 1} of {len(all_card_names) // batch_size + 1}")
+        # ✅ Step 2: Send all card names in a single POST request
+        json_body = {"card_names": "|".join(all_card_names)}  # ✅ Pipe-separated format
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(f"{API_SOURCE_URL}/fetch_prices/", json=json_body, headers=headers, timeout=120)
 
-            # ✅ Send GET request instead of POST
-            requests.get(f"{API_SOURCE_URL}/fetch_prices/?card_names={quote(batch, safe='|')}", timeout=120)
+        # ✅ Check for errors
+        if response.status_code != 200:
+            print(f"⚠️ Failed to fetch card data: {response.status_code}")
+            return {"error": f"API request failed: {response.status_code}"}
 
         print("✅ Database populated successfully!")
         return {"message": "Database populated successfully!"}
