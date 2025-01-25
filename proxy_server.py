@@ -65,7 +65,7 @@ def fetch_and_store_data(card_names: str):
     headers = {"Content-Type": "application/json"}  # ✅ Required header
 
     try:
-        response = requests.post(api_url, json=payload, headers=headers, timeout=600, verify=false)  # ✅ Send POST request
+        response = requests.post(api_url, json=payload, headers=headers, timeout=300)  # ✅ Send POST request
         print(f"🔍 API Response Status Code: {response.status_code}")
 
         if response.status_code != 200:
@@ -73,14 +73,20 @@ def fetch_and_store_data(card_names: str):
             return {"error": f"API request failed: {response.status_code}"}
 
         data = response.json()  # ✅ Store the response
+        
+        # ✅ Log fetched data before storing
+        print("📥 Fetched Prices Data:")
+        for name, details in data.items():
+            print(f"   - {name}: {details}")
+
         store_data_in_db(data)  # ✅ Store the data in PostgreSQL
 
-        print("✅ Returning fetched data to requestor.")
         return data  # ✅ Return the fetched data to the caller
 
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
         return {"error": str(e)}
+
 
 
 def store_data_in_db(data):
@@ -89,11 +95,14 @@ def store_data_in_db(data):
     cursor = conn.cursor()
 
     for name, details in data.items():
-        set_name = details.get("set", "Unknown Set")
-        price = details.get("price", 0.0)  # Default to 0 if price not found
+        set_name = details.get("set_name", "Unknown Set")
+        price_data = details.get("price_data", {})
+        
+        # ✅ Extract price (Modify this based on actual API response structure)
+        price = price_data.get("usd", 0.0)  # Use `.get("usd", 0.0)` if prices are in `usd` format
 
-        # ✅ Log prices before storing
-        print(f"📌 Storing: {name} | Set: {set_name} | Price: {price}")
+        # ✅ Log what is being inserted into the database
+        print(f"📌 Inserting into DB: {name} | Set: {set_name} | Price: {price}")
 
         cursor.execute("""
             INSERT INTO cards (name, set_name, price)
@@ -107,6 +116,7 @@ def store_data_in_db(data):
     cursor.close()
     conn.close()
     print("✅ Data successfully stored in PostgreSQL!")
+
 
 
 @app.post("/populate-database/")
