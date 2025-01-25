@@ -145,3 +145,25 @@ def populate_database():
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
         return {"error": str(e)}
+
+@app.get("/get_stored_prices/")
+def get_stored_prices():
+    """Retrieve all stored card prices from the PostgreSQL database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # ✅ Fetch all stored prices
+    cursor.execute("SELECT name, set_name, price FROM cards;")
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    # ✅ If no data is found, return a message
+    if not rows:
+        return {"message": "No card prices found in the database."}
+
+    # ✅ Convert results to a list of dictionaries
+    stored_prices = [{"name": row[0], "set": row[1], "price": row[2]} for row in rows]
+
+    return {"stored_prices": stored_prices}
+
