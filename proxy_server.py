@@ -1,4 +1,4 @@
-fy=falseimport os
+import os
 import psycopg2
 import requests
 from fastapi import FastAPI, Query
