@@ -47,9 +47,12 @@ def home():
     return {"message": "MTG Proxy API is running with PostgreSQL!"}
 
 @app.post("/fetch_prices/")
-def fetch_prices(card_names: str = Query(..., description="Pipe-separated list of card names (|)")):
-    """Fetch card prices via the proxy using GET and return them."""
-    return fetch_and_store_data(card_names)
+def fetch_prices(request_body: PriceRequest):
+    """Fetch card prices via the proxy and return them."""
+    if not request_body.card_names:
+        return {"error": "No card names provided."}
+
+    return fetch_and_store_data(request_body.card_names)
 
 def fetch_and_store_data(card_names: str):
     """Fetch card prices from the main API using GET, store them in PostgreSQL, and return results."""
