@@ -89,52 +89,32 @@ def fetch_and_store_data(card_names: str):
 
 import logging
 
-def store_data_in_db(data):
-    """Insert fetched card prices into PostgreSQL, storing only the most recent price."""
+logging.basicConfig(filename="proxy_db.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+def store_data_in_db(data):
+    """Insert fetched card prices into PostgreSQL."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    for uuid, details in data.get("data", {}).items():
-        # Extract price data from different sources
-        paper_prices = details.get("paper", {}).get("cardkingdom", {}).get("retail", {}).get("normal", {})
-        tcg_prices = details.get("tcgplayer", {}).get("retail", {}).get("normal", {})
-        cardmarket_prices = details.get("cardmarket", {}).get("retail", {}).get("normal", {})
+    for name, details in data.items():
+        price = details.get("price", 0.0)
+        set_name = details.get("set", "Unknown Set")
 
-        # ✅ Debugging Output
-        logging.info(f"🔎 UUID: {uuid}")
-        logging.info(f"   📄 Paper Prices: {paper_prices}")
-        logging.info(f"   🏷️ TCG Prices: {tcg_prices}")
-        logging.info(f"   🌍 Cardmarket Prices: {cardmarket_prices}")
+        logging.info(f"Storing card: {name}, Set: {set_name}, Price: {price}")
 
-        # ✅ Extract the most recent price
-        latest_paper_price = paper_prices.get(max(paper_prices.keys(), default=""), 0.0)
-        latest_tcg_price = tcg_prices.get(max(tcg_prices.keys(), default=""), 0.0)
-        latest_cardmarket_price = cardmarket_prices.get(max(cardmarket_prices.keys(), default=""), 0.0)
-
-        # ✅ Select the best available price (Priority: Paper > TCG > Cardmarket)
-        final_price = latest_paper_price or latest_tcg_price or latest_cardmarket_price or 0.0
-
-        logging.info(f"   ✅ Selected Price for {uuid}: ${final_price}")
-
-        try:
-            cursor.execute("""
-                INSERT INTO cards (name, set_name, price)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (name) DO UPDATE SET 
-                set_name = EXCLUDED.set_name,
-                price = EXCLUDED.price
-            """, (uuid.strip(), "Unknown Set", final_price))
-
-            logging.info(f"✅ Successfully stored {uuid} with price: ${final_price}")
-
-        except Exception as e:
-            logging.error(f"❌ Error storing {uuid}: {e}")
+        cursor.execute("""
+            INSERT INTO cards (name, set_name, price)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (name) DO UPDATE SET 
+            set_name = EXCLUDED.set_name,
+            price = EXCLUDED.price
+        """, (name.strip(), set_name, price))
 
     conn.commit()
     cursor.close()
     conn.close()
-    logging.info("✅ All data successfully stored in PostgreSQL!")
+    logging.info("✅ Database transaction committed successfully!")
+
 
 @app.post("/populate-database/")
 def populate_database():
