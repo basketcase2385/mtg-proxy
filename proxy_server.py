@@ -2,6 +2,7 @@ import os
 import psycopg2
 import requests
 from fastapi import FastAPI, Query
+from urllib.parse import quote, unquote
 
 # ✅ PostgreSQL Database URL (Render)
 DATABASE_URL = "postgresql://mtg_database_user:yuy654YGIgOhE1w7jY5Mn2ZZ53K57YNX@dpg-cu9tv73tq21c739akumg-a.oregon-postgres.render.com/mtg_database"
@@ -51,8 +52,10 @@ def get_card(card_name: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Use parameterized query to prevent truncation
-    cursor.execute("SELECT name, set_name, price FROM cards WHERE name = %s", (card_name,))
+    # ✅ Properly handle names with commas
+    decoded_card_name = unquote(card_name)
+
+    cursor.execute("SELECT name, set_name, price FROM cards WHERE name = %s", (decoded_card_name,))
     result = cursor.fetchone()
     
     conn.close()
@@ -60,15 +63,14 @@ def get_card(card_name: str):
     if result:
         return {"name": result[0], "set": result[1], "price": result[2]}
     
-    return {"error": f"Card '{card_name}' not found"}
-
+    return {"error": f"Card '{decoded_card_name}' not found"}
 
 # ✅ Fetch & Store Data in Batches to Prevent Overload
-from urllib.parse import quote
-
 def fetch_and_store_data(card_names: str):
     """Fetch card prices from the main API and store them in PostgreSQL."""
-    encoded_names = quote(card_names)  # ✅ Encode names properly
+    
+    # ✅ Ensure proper encoding of card names (preserves commas)
+    encoded_names = quote(card_names, safe=",")  
     api_url = f"{API_SOURCE_URL}?card_names={encoded_names}"
 
     try:
@@ -90,20 +92,20 @@ def store_data_in_db(data):
     cursor = conn.cursor()
 
     for name, details in data.items():
-        # Ensure the full card name is stored correctly
+        full_name = name.strip()  # ✅ Ensures full name is stored correctly
+
         cursor.execute("""
             INSERT INTO cards (name, set_name, price)
             VALUES (%s, %s, %s)
             ON CONFLICT (name) DO UPDATE SET 
             set_name = EXCLUDED.set_name,
             price = EXCLUDED.price
-        """, (name.strip(), details.get("set", "Unknown Set"), details.get("price", 0.0)))
+        """, (full_name, details.get("set", "Unknown Set"), details.get("price", 0.0)))
 
     conn.commit()
     cursor.close()
     conn.close()
     print("✅ Data successfully stored in PostgreSQL!")
-
 
 @app.post("/update-database/")
 def update_database(card_names: str = Query(..., description="Comma-separated list of card names")):
@@ -116,7 +118,7 @@ def populate_database():
     print("🔍 Fetching all available card names from the API...")
 
     try:
-        response = requests.get(f"{API_SOURCE_URL}?list_all_cards=true", timeout=120)
+        response = requests.get(f"{API_SOURCE_URL}?card_names=all", timeout=120)  # ✅ Corrected API call
         
         if response.status_code != 200:
             print(f"⚠️ Failed to fetch card list: {response.status_code}")
