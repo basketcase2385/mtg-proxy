@@ -63,6 +63,12 @@ def get_card(card_name: str):
     
     return {"error": f"Card '{card_name}' not found"}
 
+# ✅ **Add the Missing `/fetch_prices/` Route**
+@app.get("/fetch_prices/")
+def fetch_prices(card_names: str = Query(..., description="Comma-separated list of card names")):
+    """Fetch card prices via the proxy and return them."""
+    return fetch_and_store_data(card_names)
+
 # ✅ Fetch & Store Data in Batches to Prevent Overload
 def fetch_and_store_data(card_names: str):
     """Fetch card prices from the main API and store them in PostgreSQL."""
