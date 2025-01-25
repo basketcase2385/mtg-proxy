@@ -47,40 +47,42 @@ def home():
 
 @app.get("/card/{card_name}")
 def get_card(card_name: str):
-    """Fetch card details from PostgreSQL."""
+    """Fetch card details from PostgreSQL while handling names with commas properly."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT name, set_name, price FROM cards WHERE LOWER(name) = LOWER(%s)", (card_name,))
+    
+    # Use parameterized query to prevent truncation
+    cursor.execute("SELECT name, set_name, price FROM cards WHERE name = %s", (card_name,))
     result = cursor.fetchone()
+    
     conn.close()
 
     if result:
         return {"name": result[0], "set": result[1], "price": result[2]}
     
-    return {"error": "Card not found"}
+    return {"error": f"Card '{card_name}' not found"}
+
 
 # ✅ Fetch & Store Data in Batches to Prevent Overload
+from urllib.parse import quote
+
 def fetch_and_store_data(card_names: str):
-    """Fetch card prices in batches from the main API and store them in PostgreSQL."""
-    card_list = card_names.split(",")
-    batch_size = 50  # ✅ Fetch cards in batches of 50 to prevent timeouts
+    """Fetch card prices from the main API and store them in PostgreSQL."""
+    encoded_names = quote(card_names)  # ✅ Encode names properly
+    api_url = f"{API_SOURCE_URL}?card_names={encoded_names}"
 
-    for i in range(0, len(card_list), batch_size):
-        batch = ",".join(card_list[i : i + batch_size])
-        api_url = f"{API_SOURCE_URL}?card_names={batch.replace(' ', '%20')}"
-        
-        try:
-            response = requests.get(api_url, timeout=120)  # ✅ Increased timeout
-            print(f"🔍 API Response Status Code: {response.status_code}")
+    try:
+        response = requests.get(api_url, timeout=120)
+        print(f"🔍 API Response Status Code: {response.status_code}")
 
-            if response.status_code != 200:
-                print(f"⚠️ Failed to fetch data: {response.status_code} - {response.text}")
-                return {"error": f"API request failed: {response.status_code}"}
+        if response.status_code != 200:
+            print(f"⚠️ Failed to fetch data: {response.status_code} - {response.text}")
+            return {"error": f"API request failed: {response.status_code}"}
 
-            store_data_in_db(response.json())  # ✅ Store batch results
+        store_data_in_db(response.json())
 
-        except requests.exceptions.RequestException as e:
-            print(f"❌ API request failed: {str(e)}")
+    except requests.exceptions.RequestException as e:
+        print(f"❌ API request failed: {str(e)}")
 
 def store_data_in_db(data):
     """Insert fetched card prices into PostgreSQL."""
@@ -88,18 +90,20 @@ def store_data_in_db(data):
     cursor = conn.cursor()
 
     for name, details in data.items():
+        # Ensure the full card name is stored correctly
         cursor.execute("""
             INSERT INTO cards (name, set_name, price)
             VALUES (%s, %s, %s)
             ON CONFLICT (name) DO UPDATE SET 
             set_name = EXCLUDED.set_name,
             price = EXCLUDED.price
-        """, (name, details.get("set", "Unknown Set"), details.get("price", 0.0)))
+        """, (name.strip(), details.get("set", "Unknown Set"), details.get("price", 0.0)))
 
     conn.commit()
     cursor.close()
     conn.close()
     print("✅ Data successfully stored in PostgreSQL!")
+
 
 @app.post("/update-database/")
 def update_database(card_names: str = Query(..., description="Comma-separated list of card names")):
