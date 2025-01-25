@@ -108,9 +108,9 @@ def populate_database():
     print("🔍 Fetching all available card names from the API...")
 
     try:
-        # ✅ Step 1: Send a POST request to `/list_all_cards/` instead of GET
+        # ✅ Step 1: Ensure we send a **POST** request to `/list_all_cards/`
         headers = {"Content-Type": "application/json"}
-        response = requests.post(f"{API_SOURCE_URL}/list_all_cards/", headers=headers, timeout=120)
+        response = requests.post(f"{API_SOURCE_URL}/list_all_cards/", headers=headers, timeout=120)  # **POST, not GET**
 
         if response.status_code != 200:
             print(f"⚠️ Failed to fetch card list: {response.status_code}")
@@ -124,9 +124,9 @@ def populate_database():
 
         print(f"✅ Retrieved {len(all_card_names)} card names. Sending a single POST request...")
 
-        # ✅ Step 2: Send all card names in a single POST request
+        # ✅ Step 2: Send all card names in a single **POST** request
         json_body = {"card_names": "|".join(all_card_names)}  # ✅ Pipe-separated format
-        response = requests.post(f"{API_SOURCE_URL}/fetch_prices/", json=json_body, headers=headers, timeout=120)
+        response = requests.post(f"{API_SOURCE_URL}/fetch_prices/", json=json_body, headers=headers, timeout=120)  # **POST, not GET**
 
         if response.status_code != 200:
             print(f"⚠️ Failed to fetch card data: {response.status_code}")
@@ -138,4 +138,3 @@ def populate_database():
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
         return {"error": str(e)}
-
