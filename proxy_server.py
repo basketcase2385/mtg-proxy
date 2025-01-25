@@ -46,7 +46,7 @@ def home():
     """Health check endpoint."""
     return {"message": "MTG Proxy API is running with PostgreSQL!"}
 
-@app.get("/fetch_prices/")
+@app.post("/fetch_prices/")
 def fetch_prices(card_names: str = Query(..., description="Pipe-separated list of card names (|)")):
     """Fetch card prices via the proxy using GET and return them."""
     return fetch_and_store_data(card_names)
@@ -94,7 +94,7 @@ def store_data_in_db(data):
     conn.close()
     print("✅ Data successfully stored in PostgreSQL!")
 
-@app.get("/populate-database/")
+@app.post("/populate-database/")
 def populate_database():
     """Fetch all card names from the main API, then request their prices in batches using GET."""
     print("🔍 Fetching all available card names from the API...")
