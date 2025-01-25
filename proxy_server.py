@@ -47,7 +47,7 @@ def home():
     """Health check endpoint."""
     return {"message": "MTG Proxy API is running with PostgreSQL!"}
 
-# ✅ Schema for Post Requests
+# ✅ Schema for POST Requests
 class PriceRequest(BaseModel):
     card_names: str  # Expecting a single pipe-separated string ("Black Lotus|Mox Ruby")
 
@@ -71,12 +71,11 @@ def fetch_prices(
 def fetch_and_store_data(card_names: str):
     """Fetch card prices from the main API and store them in PostgreSQL."""
 
-    # ✅ Encode names properly (fixes comma-related issues)
-    encoded_names = quote(card_names, safe="|")  
-    api_url = f"{API_SOURCE_URL}/fetch_prices/?card_names={encoded_names}"
+    # ✅ Prepare JSON payload for the request
+    json_body = {"card_names": card_names}
 
     try:
-        response = requests.get(api_url, timeout=120)
+        response = requests.post(f"{API_SOURCE_URL}/fetch_prices/", json=json_body, timeout=120)  # ✅ Now using POST request
         print(f"🔍 API Response Status Code: {response.status_code}")
 
         if response.status_code != 200:
@@ -132,7 +131,10 @@ def populate_database():
         batch_size = 50
         for i in range(0, len(all_card_names), batch_size):
             batch = "|".join(all_card_names[i:i + batch_size])  # ✅ Use `|` instead of `,`
-            fetch_and_store_data(batch)
+
+            # ✅ Convert to JSON and send POST request
+            json_body = {"card_names": batch}
+            requests.post(f"{API_SOURCE_URL}/fetch_prices/", json=json_body, timeout=120)
 
         print("✅ Database populated successfully!")
         return {"message": "Database populated successfully!"}
