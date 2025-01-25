@@ -90,34 +90,39 @@ def fetch_and_store_data(card_names: str):
 
 
 def store_data_in_db(data):
-    """Insert fetched card prices into PostgreSQL."""
+    """Insert fetched card prices into PostgreSQL, storing only the most recent price."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    for name, details in data.items():
-        set_name = details.get("set_name", "Unknown Set")
-        price_data = details.get("price_data", {})
-        
-        # ✅ Extract price (Modify this based on actual API response structure)
-        price = price_data.get("usd", 0.0)  # Use `.get("usd", 0.0)` if prices are in `usd` format
+    for uuid, details in data.get("data", {}).items():
+        # Extract price data from different sources
+        paper_price = details.get("paper", {}).get("retail", {}).get("normal", {})
+        foil_price = details.get("paper", {}).get("retail", {}).get("foil", {})
+        tcg_price = details.get("tcgplayer", {}).get("retail", {}).get("normal", {})
+        cardmarket_price = details.get("cardmarket", {}).get("retail", {}).get("normal", {})
 
-        # ✅ Log what is being inserted into the database
-        print(f"📌 Inserting into DB: {name} | Set: {set_name} | Price: {price}")
+        # Get the most recent price (sorted by date)
+        latest_paper_price = paper_price.get(max(paper_price.keys(), default=None), 0.0)
+        latest_foil_price = foil_price.get(max(foil_price.keys(), default=None), 0.0)
+        latest_tcg_price = tcg_price.get(max(tcg_price.keys(), default=None), 0.0)
+        latest_cardmarket_price = cardmarket_price.get(max(cardmarket_price.keys(), default=None), 0.0)
 
+        # Determine the most recent price (prioritizing paper → tcg → cardmarket)
+        final_price = latest_paper_price or latest_tcg_price or latest_cardmarket_price or 0.0
+
+        # Insert into database
         cursor.execute("""
             INSERT INTO cards (name, set_name, price)
             VALUES (%s, %s, %s)
             ON CONFLICT (name) DO UPDATE SET 
             set_name = EXCLUDED.set_name,
             price = EXCLUDED.price
-        """, (name.strip(), set_name, price))
+        """, (uuid.strip(), "Unknown Set", final_price))
 
     conn.commit()
     cursor.close()
     conn.close()
     print("✅ Data successfully stored in PostgreSQL!")
-
-
 
 @app.post("/populate-database/")
 def populate_database():
