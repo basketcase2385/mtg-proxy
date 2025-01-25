@@ -69,13 +69,14 @@ def fetch_prices(
     return fetch_and_store_data(decoded_names)
 
 def fetch_and_store_data(card_names: str):
-    """Fetch card prices from the main API, store them in PostgreSQL, and return results."""
-    
-    encoded_names = quote(card_names, safe="|")  
-    api_url = f"{API_SOURCE_URL}/fetch_prices/?card_names={encoded_names}"
+    """Fetch card prices from the main API using POST, store them in PostgreSQL, and return results."""
+
+    api_url = f"{API_SOURCE_URL}/fetch_prices/"  # ✅ Ensure POST is used
+    payload = {"card_names": card_names}  # ✅ JSON body for POST request
+    headers = {"Content-Type": "application/json"}  # ✅ Required header
 
     try:
-        response = requests.get(api_url, timeout=120)
+        response = requests.post(api_url, json=payload, headers=headers, timeout=120)  # ✅ Send POST request
         print(f"🔍 API Response Status Code: {response.status_code}")
 
         if response.status_code != 200:
@@ -85,7 +86,17 @@ def fetch_and_store_data(card_names: str):
         data = response.json()  # ✅ Store the response
         store_data_in_db(data)  # ✅ Store the data in PostgreSQL
 
-        return data  # ✅ Return the fetched data
+        return data  # ✅ Return the fetched data to the caller
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ API request failed: {str(e)}")
+        return {"error": str(e)}
+
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ API request failed: {str(e)}")
+        return {"error": str(e)}
+
 
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
