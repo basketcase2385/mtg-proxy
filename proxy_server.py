@@ -3,6 +3,9 @@ import psycopg2
 import requests
 from fastapi import FastAPI, Query
 from urllib.parse import quote, unquote
+from pydantic import BaseModel  # ✅ Ensure this is imported
+class PriceRequest(BaseModel):
+    card_names: str  # Expecting a single pipe-separated string ("Black Lotus|Mox Ruby")
 
 # ✅ PostgreSQL Database URL (Render)
 DATABASE_URL = "postgresql://mtg_database_user:yuy654YGIgOhE1w7jY5Mn2ZZ53K57YNX@dpg-cu9tv73tq21c739akumg-a.oregon-postgres.render.com/mtg_database"
