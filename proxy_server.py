@@ -89,18 +89,25 @@ def store_data_in_db(data):
     cursor = conn.cursor()
 
     for name, details in data.items():
+        set_name = details.get("set", "Unknown Set")
+        price = details.get("price", 0.0)  # Default to 0 if price not found
+
+        # ✅ Log prices before storing
+        print(f"📌 Storing: {name} | Set: {set_name} | Price: {price}")
+
         cursor.execute("""
             INSERT INTO cards (name, set_name, price)
             VALUES (%s, %s, %s)
             ON CONFLICT (name) DO UPDATE SET 
             set_name = EXCLUDED.set_name,
             price = EXCLUDED.price
-        """, (name.strip(), details.get("set", "Unknown Set"), details.get("price", 0.0)))
+        """, (name.strip(), set_name, price))
 
     conn.commit()
     cursor.close()
     conn.close()
     print("✅ Data successfully stored in PostgreSQL!")
+
 
 @app.post("/populate-database/")
 def populate_database():
