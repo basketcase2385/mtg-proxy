@@ -1,4 +1,4 @@
-import os
+fy=falseimport os
 import psycopg2
 import requests
 from fastapi import FastAPI, Query
@@ -65,7 +65,7 @@ def fetch_and_store_data(card_names: str):
     headers = {"Content-Type": "application/json"}  # ✅ Required header
 
     try:
-        response = requests.post(api_url, json=payload, headers=headers, timeout=600)  # ✅ Send POST request
+        response = requests.post(api_url, json=payload, headers=headers, timeout=600, verify=false)  # ✅ Send POST request
         print(f"🔍 API Response Status Code: {response.status_code}")
 
         if response.status_code != 200:
