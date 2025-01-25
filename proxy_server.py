@@ -69,23 +69,28 @@ def fetch_prices(
     return fetch_and_store_data(decoded_names)
 
 def fetch_and_store_data(card_names: str):
-    """Fetch card prices from the main API and store them in PostgreSQL."""
-
-    # ✅ Prepare JSON payload for the request
-    json_body = {"card_names": card_names}
+    """Fetch card prices from the main API, store them in PostgreSQL, and return results."""
+    
+    encoded_names = quote(card_names, safe="|")  
+    api_url = f"{API_SOURCE_URL}/fetch_prices/?card_names={encoded_names}"
 
     try:
-        response = requests.post(f"{API_SOURCE_URL}/fetch_prices/", json=json_body, timeout=120)  # ✅ Now using POST request
+        response = requests.get(api_url, timeout=120)
         print(f"🔍 API Response Status Code: {response.status_code}")
 
         if response.status_code != 200:
             print(f"⚠️ Failed to fetch data: {response.status_code} - {response.text}")
             return {"error": f"API request failed: {response.status_code}"}
 
-        store_data_in_db(response.json())
+        data = response.json()  # ✅ Store the response
+        store_data_in_db(data)  # ✅ Store the data in PostgreSQL
+
+        return data  # ✅ Return the fetched data
 
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
+        return {"error": str(e)}
+
 
 def store_data_in_db(data):
     """Insert fetched card prices into PostgreSQL."""
