@@ -63,15 +63,16 @@ def get_card(card_name: str):
     
     return {"error": f"Card '{card_name}' not found"}
 
-# ✅ **Add the Missing `/fetch_prices/` Route**
+# ✅ **Fixed `/fetch_prices/` Route**
 @app.get("/fetch_prices/")
 def fetch_prices(card_names: str = Query(..., description="Comma-separated list of card names")):
-    """Fetch card prices via the proxy and return them."""
-    return fetch_and_store_data(card_names)
+    """Fetch card prices via the proxy, store them in the database, and return them."""
+    data = fetch_and_store_data(card_names)  # ✅ Fetch and store data
+    return data  # ✅ Return the fetched data!
 
-# ✅ Fetch & Store Data in Batches to Prevent Overload
+# ✅ **Fixed `fetch_and_store_data()` to Ensure Data is Returned**
 def fetch_and_store_data(card_names: str):
-    """Fetch card prices from the main API and store them in PostgreSQL."""
+    """Fetch card prices from the main API, store them in PostgreSQL, and return the data."""
     
     # ✅ Encode names properly (fixes comma-related issues)
     encoded_names = quote(card_names, safe=",")  
@@ -85,10 +86,14 @@ def fetch_and_store_data(card_names: str):
             print(f"⚠️ Failed to fetch data: {response.status_code} - {response.text}")
             return {"error": f"API request failed: {response.status_code}"}
 
-        store_data_in_db(response.json())
+        data = response.json()  # ✅ Fetch the JSON response
+        store_data_in_db(data)  # ✅ Save data in PostgreSQL
+        
+        return data  # ✅ Return the fetched data from the proxy
 
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
+        return {"error": str(e)}
 
 def store_data_in_db(data):
     """Insert fetched card prices into PostgreSQL."""
