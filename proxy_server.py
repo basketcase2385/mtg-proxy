@@ -104,14 +104,13 @@ def store_data_in_db(data):
 
 @app.post("/populate-database/")
 def populate_database():
-    """Fetch all card names from the main API using POST, then request their prices in a single POST request."""
+    """Fetch all card names from the main API, then request their prices in batches."""
     print("🔍 Fetching all available card names from the API...")
 
     try:
-        # ✅ Step 1: Ensure we send a **POST** request to `/list_all_cards/`
-        headers = {"Content-Type": "application/json"}
-        response = requests.post(f"{API_SOURCE_URL}/list_all_cards/", headers=headers, timeout=600)  # **POST, not GET**
-
+        # ✅ Step 1: Get all card names from `/list_all_cards/`
+        response = requests.post(f"{API_SOURCE_URL}/list_all_cards/", timeout=120)
+        
         if response.status_code != 200:
             print(f"⚠️ Failed to fetch card list: {response.status_code}")
             return {"error": f"API request failed: {response.status_code}"}
@@ -122,15 +121,23 @@ def populate_database():
             print("❌ No cards found in the main API response.")
             return {"error": "No cards found in API response."}
 
-        print(f"✅ Retrieved {len(all_card_names)} card names. Sending a single POST request...")
+        print(f"✅ Retrieved {len(all_card_names)} card names. Processing in batches...")
 
-        # ✅ Step 2: Send all card names in a single **POST** request
-        json_body = {"card_names": "|".join(all_card_names)}  # ✅ Pipe-separated format
-        response = requests.post(f"{API_SOURCE_URL}/fetch_prices/", json=json_body, headers=headers, timeout=600)  # **POST, not GET**
+        # ✅ Step 2: Fetch and store data in batches of 50
+        batch_size = 50
+        for i in range(0, len(all_card_names), batch_size):
+            batch = "|".join(all_card_names[i:i + batch_size])  # ✅ Create a batch of card names
+            print(f"🔄 Processing batch {i // batch_size + 1} of {len(all_card_names) // batch_size + 1}")
 
-        if response.status_code != 200:
-            print(f"⚠️ Failed to fetch card data: {response.status_code}")
-            return {"error": f"API request failed: {response.status_code}"}
+            # ✅ Convert to JSON and send POST request
+            json_body = {"card_names": batch}
+            headers = {"Content-Type": "application/json"}
+            response = requests.post(f"{API_SOURCE_URL}/fetch_prices/", json=json_body, headers=headers, timeout=120)
+
+            if response.status_code != 200:
+                print(f"⚠️ Batch {i // batch_size + 1} failed: {response.status_code}")
+            else:
+                print(f"✅ Batch {i // batch_size + 1} processed successfully.")
 
         print("✅ Database populated successfully!")
         return {"message": "Database populated successfully!"}
