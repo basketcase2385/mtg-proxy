@@ -4,7 +4,7 @@ import requests
 import threading
 import time
 from fastapi import FastAPI, Query
-from urllib.parse import quote, unquote
+from urllib.parse import quote
 
 # ✅ PostgreSQL Database URL (Render)
 DATABASE_URL = "postgresql://mtg_database_user:yuy654YGIgOhE1w7jY5Mn2ZZ53K57YNX@dpg-cu9tv73tq21c739akumg-a.oregon-postgres.render.com/mtg_database"
@@ -50,11 +50,10 @@ def home():
 
 @app.get("/card/{card_name}")
 def get_card(card_name: str):
-    """Fetch card details from PostgreSQL while handling names with commas properly."""
+    """Fetch card details from PostgreSQL."""
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # ✅ Use full name without truncation
     cursor.execute("SELECT name, set_name, price FROM cards WHERE name = %s", (card_name,))
     result = cursor.fetchone()
     
@@ -65,6 +64,7 @@ def get_card(card_name: str):
     
     return {"error": f"Card '{card_name}' not found"}
 
+# ✅ **Fix Fetch Prices Route in Proxy**
 @app.get("/fetch_prices/")
 def fetch_prices(card_names: str = Query(..., description="Comma-separated list of card names")):
     """Fetch card prices via the proxy and return them."""
@@ -74,7 +74,6 @@ def fetch_prices(card_names: str = Query(..., description="Comma-separated list 
 def fetch_and_store_data(card_names: str):
     """Fetch card prices from the main API and store them in PostgreSQL."""
     
-    # ✅ Encode names properly (fixes comma-related issues)
     encoded_names = quote(card_names, safe=",")  
     api_url = f"{API_SOURCE_URL}?card_names={encoded_names}"
 
@@ -97,7 +96,6 @@ def store_data_in_db(data):
     cursor = conn.cursor()
 
     for name, details in data.items():
-        # ✅ Ensure the full card name is stored correctly
         cursor.execute("""
             INSERT INTO cards (name, set_name, price)
             VALUES (%s, %s, %s)
@@ -122,14 +120,14 @@ def populate_database():
     print("🔍 Fetching all available card names from the API...")
 
     try:
-        # ✅ Corrected API request for fetching all card names
+        # ✅ Fix: Use `?card_names=all` instead of `?list_all_cards=true`
         response = requests.get(f"{API_SOURCE_URL}?card_names=all", timeout=120)
         
         if response.status_code != 200:
             print(f"⚠️ Failed to fetch card list: {response.status_code}")
             return {"error": f"API request failed: {response.status_code}"}
 
-        all_card_names = response.json().get("all_cards", [])  # ✅ Expecting {"all_cards": ["Black Lotus", "Mox Emerald", ...]}
+        all_card_names = list(response.json().keys())  # ✅ Extract card names from API response
 
         if not all_card_names:
             print("❌ No cards found in the main API response.")
@@ -150,14 +148,33 @@ def populate_database():
         print(f"❌ API request failed: {str(e)}")
         return {"error": str(e)}
 
-# ✅ **Auto-update database every 24 hours**
+# ✅ **Auto-Update Database Every 24 Hours**
 def auto_update_database():
-    """Automatically updates the database every 24 hours."""
     while True:
-        print("🔄 Running automatic database update...")
+        print("🔄 Auto-updating database from the main API...")
         populate_database()
-        time.sleep(86400)  # Wait 24 hours
+        time.sleep(86400)  # Run every 24 hours
 
-# ✅ Start background thread for auto-updating
+# ✅ **Detect Database Corruption/Empty State**
+def check_and_repopulate():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # ✅ Count total cards
+    cursor.execute("SELECT COUNT(*) FROM cards")
+    total_cards = cursor.fetchone()[0]
+    
+    conn.close()
+
+    if total_cards == 0:
+        print("⚠️ Database is empty or corrupted. Re-populating...")
+        populate_database()
+    else:
+        print(f"✅ Database check passed. {total_cards} cards found.")
+
+# ✅ Start Auto-Update Thread
 update_thread = threading.Thread(target=auto_update_database, daemon=True)
 update_thread.start()
+
+# ✅ Check Database Integrity on Startup
+check_and_repopulate()
