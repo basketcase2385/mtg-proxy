@@ -1,8 +1,9 @@
 import os
 import psycopg2
 import requests
-from fastapi import FastAPI, Query
-from urllib.parse import quote
+from fastapi import FastAPI, Query, Body
+from pydantic import BaseModel
+from urllib.parse import quote, unquote
 
 # ✅ PostgreSQL Database URL (Render)
 DATABASE_URL = "postgresql://mtg_database_user:yuy654YGIgOhE1w7jY5Mn2ZZ53K57YNX@dpg-cu9tv73tq21c739akumg-a.oregon-postgres.render.com/mtg_database"
@@ -46,16 +47,32 @@ def home():
     """Health check endpoint."""
     return {"message": "MTG Proxy API is running with PostgreSQL!"}
 
-@app.get("/fetch_prices/")
-def fetch_prices(card_names: str = Query(..., description="Comma-separated list of card names")):
-    """Fetch card prices via the proxy and return them."""
-    return fetch_and_store_data(card_names)
+# ✅ Schema for Post Requests
+class PriceRequest(BaseModel):
+    card_names: str  # Expecting a single pipe-separated string ("Black Lotus|Mox Ruby")
+
+@app.api_route("/fetch_prices/", methods=["GET", "POST"])
+def fetch_prices(
+    card_names: str = Query(None, description="Pipe-separated list of card names (|)"),
+    request_body: PriceRequest = Body(None)
+):
+    """Fetch card prices via the proxy and return them (supports GET & POST)."""
+
+    # ✅ Handle GET and POST requests
+    if request_body and request_body.card_names:
+        decoded_names = unquote(request_body.card_names)  # POST request
+    elif card_names:
+        decoded_names = unquote(card_names)  # GET request
+    else:
+        return {"error": "No card names provided."}
+
+    return fetch_and_store_data(decoded_names)
 
 def fetch_and_store_data(card_names: str):
     """Fetch card prices from the main API and store them in PostgreSQL."""
-    
+
     # ✅ Encode names properly (fixes comma-related issues)
-    encoded_names = quote(card_names, safe=",")  
+    encoded_names = quote(card_names, safe="|")  
     api_url = f"{API_SOURCE_URL}/fetch_prices/?card_names={encoded_names}"
 
     try:
@@ -114,7 +131,7 @@ def populate_database():
         # ✅ Step 2: Fetch and store data in batches of 50
         batch_size = 50
         for i in range(0, len(all_card_names), batch_size):
-            batch = ",".join(all_card_names[i:i + batch_size])
+            batch = "|".join(all_card_names[i:i + batch_size])  # ✅ Use `|` instead of `,`
             fetch_and_store_data(batch)
 
         print("✅ Database populated successfully!")
