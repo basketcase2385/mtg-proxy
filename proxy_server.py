@@ -1,9 +1,12 @@
 import os
 import psycopg2
 import requests
+import threading
+import time
 from fastapi import FastAPI, Query
 from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor
+from psycopg2.extras import execute_values
 
 # ✅ PostgreSQL Database URL (Render)
 DATABASE_URL = "postgresql://mtg_database_user:yuy654YGIgOhE1w7jY5Mn2ZZ53K57YNX@dpg-cu9tv73tq21c739akumg-a.oregon-postgres.render.com/mtg_database"
@@ -49,7 +52,7 @@ def home():
 
 @app.post("/populate-database/")
 def populate_database():
-    """Fetch all card names from the main API, then request their prices in the fastest way possible."""
+    """Fetch all card names from the main API, then request their prices as fast as possible."""
     print("🔍 Fetching all available card names from the API...")
 
     try:
@@ -80,7 +83,7 @@ def populate_database():
         for future in futures:
             future.result()
 
-        print("✅ Database populated successfully at maximum speed!")
+        print("✅ Database populated successfully!")
         return {"message": "Database populated successfully!"}
 
     except requests.exceptions.RequestException as e:
@@ -125,7 +128,6 @@ def store_data_in_db(data):
         price = EXCLUDED.price
     """
 
-    from psycopg2.extras import execute_values
     execute_values(cursor, query, insert_data)
 
     conn.commit()
@@ -134,6 +136,33 @@ def store_data_in_db(data):
     print(f"✅ Stored {len(insert_data)} cards in PostgreSQL!")
 
 @app.post("/update-database/")
-def update_database(card_names: str = Query(..., description="Comma-separated list of card names")):
-    """Fetch updated data for specific cards from the main API and store it in PostgreSQL."""
-    return fetch_and_store_data(card_names)
+def update_database():
+    """Fetch updated data for all cards and store it in PostgreSQL."""
+    return populate_database()
+
+# ✅ **Automatic Database Update & Corruption Check**
+def auto_update_database():
+    """Runs every 24 hours to update prices & repopulate if necessary."""
+    while True:
+        print("🕒 Running Scheduled Database Check...")
+        
+        # ✅ Step 1: Check if Database is Empty or Corrupt
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM cards")
+        count = cursor.fetchone()[0]
+        conn.close()
+
+        if count == 0:
+            print("⚠️ Database is empty! Repopulating...")
+            populate_database()
+        else:
+            print(f"✅ Database contains {count} records. Running an update...")
+            update_database()
+
+        # ✅ Wait 24 Hours Before Running Again
+        time.sleep(86400)  # **Wait for 24 hours**
+
+# ✅ **Start Background Auto-Updater**
+auto_update_thread = threading.Thread(target=auto_update_database, daemon=True)
+auto_update_thread.start()
