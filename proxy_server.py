@@ -1,8 +1,6 @@
 import os
 import psycopg2
 import requests
-import threading
-import time
 from fastapi import FastAPI, Query
 from urllib.parse import quote
 
@@ -10,7 +8,7 @@ from urllib.parse import quote
 DATABASE_URL = "postgresql://mtg_database_user:yuy654YGIgOhE1w7jY5Mn2ZZ53K57YNX@dpg-cu9tv73tq21c739akumg-a.oregon-postgres.render.com/mtg_database"
 
 # ✅ Main API URL (Ensure this is correct)
-API_SOURCE_URL = "https://mtgapp.ngrok.app/fetch_prices/"
+API_SOURCE_URL = "https://mtgapp.ngrok.app"
 
 app = FastAPI()
 
@@ -48,34 +46,17 @@ def home():
     """Health check endpoint."""
     return {"message": "MTG Proxy API is running with PostgreSQL!"}
 
-@app.get("/card/{card_name}")
-def get_card(card_name: str):
-    """Fetch card details from PostgreSQL."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT name, set_name, price FROM cards WHERE name = %s", (card_name,))
-    result = cursor.fetchone()
-    
-    conn.close()
-
-    if result:
-        return {"name": result[0], "set": result[1], "price": result[2]}
-    
-    return {"error": f"Card '{card_name}' not found"}
-
-# ✅ **Fix Fetch Prices Route in Proxy**
 @app.get("/fetch_prices/")
 def fetch_prices(card_names: str = Query(..., description="Comma-separated list of card names")):
     """Fetch card prices via the proxy and return them."""
     return fetch_and_store_data(card_names)
 
-# ✅ Fetch & Store Data in Batches to Prevent Overload
 def fetch_and_store_data(card_names: str):
     """Fetch card prices from the main API and store them in PostgreSQL."""
     
+    # ✅ Encode names properly (fixes comma-related issues)
     encoded_names = quote(card_names, safe=",")  
-    api_url = f"{API_SOURCE_URL}?card_names={encoded_names}"
+    api_url = f"{API_SOURCE_URL}/fetch_prices/?card_names={encoded_names}"
 
     try:
         response = requests.get(api_url, timeout=120)
@@ -109,25 +90,20 @@ def store_data_in_db(data):
     conn.close()
     print("✅ Data successfully stored in PostgreSQL!")
 
-@app.post("/update-database/")
-def update_database(card_names: str = Query(..., description="Comma-separated list of card names")):
-    """Fetch updated data for specific cards from the main API and store it in PostgreSQL."""
-    return fetch_and_store_data(card_names)
-
 @app.post("/populate-database/")
 def populate_database():
     """Fetch all card names from the main API, then request their prices in batches."""
     print("🔍 Fetching all available card names from the API...")
 
     try:
-        # ✅ Fix: Use `?card_names=all` instead of `?list_all_cards=true`
-        response = requests.get(f"{API_SOURCE_URL}?card_names=all", timeout=120)
+        # ✅ Step 1: Get all card names from `/list_all_cards/`
+        response = requests.get(f"{API_SOURCE_URL}/list_all_cards/", timeout=120)
         
         if response.status_code != 200:
             print(f"⚠️ Failed to fetch card list: {response.status_code}")
             return {"error": f"API request failed: {response.status_code}"}
 
-        all_card_names = list(response.json().keys())  # ✅ Extract card names from API response
+        all_card_names = response.json().get("all_cards", [])  # ✅ Expecting {"all_cards": ["Black Lotus", "Mox Emerald", ...]}
 
         if not all_card_names:
             print("❌ No cards found in the main API response.")
@@ -135,7 +111,7 @@ def populate_database():
 
         print(f"✅ Retrieved {len(all_card_names)} card names. Processing in batches...")
 
-        # ✅ Fetch and store data in batches of 50
+        # ✅ Step 2: Fetch and store data in batches of 50
         batch_size = 50
         for i in range(0, len(all_card_names), batch_size):
             batch = ",".join(all_card_names[i:i + batch_size])
@@ -147,34 +123,3 @@ def populate_database():
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
         return {"error": str(e)}
-
-# ✅ **Auto-Update Database Every 24 Hours**
-def auto_update_database():
-    while True:
-        print("🔄 Auto-updating database from the main API...")
-        populate_database()
-        time.sleep(86400)  # Run every 24 hours
-
-# ✅ **Detect Database Corruption/Empty State**
-def check_and_repopulate():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # ✅ Count total cards
-    cursor.execute("SELECT COUNT(*) FROM cards")
-    total_cards = cursor.fetchone()[0]
-    
-    conn.close()
-
-    if total_cards == 0:
-        print("⚠️ Database is empty or corrupted. Re-populating...")
-        populate_database()
-    else:
-        print(f"✅ Database check passed. {total_cards} cards found.")
-
-# ✅ Start Auto-Update Thread
-update_thread = threading.Thread(target=auto_update_database, daemon=True)
-update_thread.start()
-
-# ✅ Check Database Integrity on Startup
-check_and_repopulate()
