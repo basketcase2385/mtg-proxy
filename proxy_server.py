@@ -110,7 +110,7 @@ def populate_database():
     try:
         # ✅ Step 1: Ensure we send a **POST** request to `/list_all_cards/`
         headers = {"Content-Type": "application/json"}
-        response = requests.post(f"{API_SOURCE_URL}/list_all_cards/", headers=headers, timeout=120)  # **POST, not GET**
+        response = requests.post(f"{API_SOURCE_URL}/list_all_cards/", headers=headers, timeout=600)  # **POST, not GET**
 
         if response.status_code != 200:
             print(f"⚠️ Failed to fetch card list: {response.status_code}")
@@ -126,7 +126,7 @@ def populate_database():
 
         # ✅ Step 2: Send all card names in a single **POST** request
         json_body = {"card_names": "|".join(all_card_names)}  # ✅ Pipe-separated format
-        response = requests.post(f"{API_SOURCE_URL}/fetch_prices/", json=json_body, headers=headers, timeout=120)  # **POST, not GET**
+        response = requests.post(f"{API_SOURCE_URL}/fetch_prices/", json=json_body, headers=headers, timeout=600)  # **POST, not GET**
 
         if response.status_code != 200:
             print(f"⚠️ Failed to fetch card data: {response.status_code}")
