@@ -2,7 +2,8 @@ import os
 import psycopg2
 import requests
 from fastapi import FastAPI, Query
-from urllib.parse import quote, unquote
+from urllib.parse import quote
+from concurrent.futures import ThreadPoolExecutor
 
 # ✅ PostgreSQL Database URL (Render)
 DATABASE_URL = "postgresql://mtg_database_user:yuy654YGIgOhE1w7jY5Mn2ZZ53K57YNX@dpg-cu9tv73tq21c739akumg-a.oregon-postgres.render.com/mtg_database"
@@ -46,36 +47,49 @@ def home():
     """Health check endpoint."""
     return {"message": "MTG Proxy API is running with PostgreSQL!"}
 
-@app.get("/card/{card_name}")
-def get_card(card_name: str):
-    """Fetch card details from PostgreSQL while handling names with commas properly."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # ✅ Use full name without truncation
-    cursor.execute("SELECT name, set_name, price FROM cards WHERE name = %s", (card_name,))
-    result = cursor.fetchone()
-    
-    conn.close()
+@app.post("/populate-database/")
+def populate_database():
+    """Fetch all card names from the main API, then request their prices in the fastest way possible."""
+    print("🔍 Fetching all available card names from the API...")
 
-    if result:
-        return {"name": result[0], "set": result[1], "price": result[2]}
-    
-    return {"error": f"Card '{card_name}' not found"}
+    try:
+        # ✅ Step 1: Fetch the full card list from the main API
+        response = requests.get(f"{API_SOURCE_URL}?list_all_cards=true", timeout=120)
+        
+        if response.status_code != 200:
+            print(f"⚠️ Failed to fetch card list: {response.status_code}")
+            return {"error": f"API request failed: {response.status_code}"}
 
-# ✅ **Fixed `/fetch_prices/` Route**
-@app.get("/fetch_prices/")
-def fetch_prices(card_names: str = Query(..., description="Comma-separated list of card names")):
-    """Fetch card prices via the proxy, store them in the database, and return them."""
-    data = fetch_and_store_data(card_names)  # ✅ Fetch and store data
-    return data  # ✅ Return the fetched data!
+        all_card_names = response.json().get("all_cards", [])
 
-# ✅ **Fixed `fetch_and_store_data()` to Ensure Data is Returned**
+        if not all_card_names:
+            print("❌ No cards found in the main API response.")
+            return {"error": "No cards found in API response."}
+
+        print(f"✅ Retrieved {len(all_card_names)} card names. Processing in parallel batches...")
+
+        # ✅ Step 2: Process in parallel batches using ThreadPoolExecutor
+        batch_size = 200  # **Increased Batch Size**
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [
+                executor.submit(fetch_and_store_data, ",".join(all_card_names[i:i + batch_size]))
+                for i in range(0, len(all_card_names), batch_size)
+            ]
+
+        # ✅ Wait for all tasks to complete
+        for future in futures:
+            future.result()
+
+        print("✅ Database populated successfully at maximum speed!")
+        return {"message": "Database populated successfully!"}
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ API request failed: {str(e)}")
+        return {"error": str(e)}
+
 def fetch_and_store_data(card_names: str):
-    """Fetch card prices from the main API, store them in PostgreSQL, and return the data."""
-    
-    # ✅ Encode names properly (fixes comma-related issues)
-    encoded_names = quote(card_names, safe=",")  
+    """Fetch card prices in parallel from the main API and store them in PostgreSQL."""
+    encoded_names = quote(card_names, safe=",")
     api_url = f"{API_SOURCE_URL}?card_names={encoded_names}"
 
     try:
@@ -86,69 +100,40 @@ def fetch_and_store_data(card_names: str):
             print(f"⚠️ Failed to fetch data: {response.status_code} - {response.text}")
             return {"error": f"API request failed: {response.status_code}"}
 
-        data = response.json()  # ✅ Fetch the JSON response
-        store_data_in_db(data)  # ✅ Save data in PostgreSQL
-        
-        return data  # ✅ Return the fetched data from the proxy
+        data = response.json()
+        store_data_in_db(data)
 
     except requests.exceptions.RequestException as e:
         print(f"❌ API request failed: {str(e)}")
-        return {"error": str(e)}
 
 def store_data_in_db(data):
-    """Insert fetched card prices into PostgreSQL."""
+    """Insert fetched card prices into PostgreSQL using bulk inserts for speed."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    for name, details in data.items():
-        # ✅ Ensure the full card name is stored correctly
-        cursor.execute("""
-            INSERT INTO cards (name, set_name, price)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (name) DO UPDATE SET 
-            set_name = EXCLUDED.set_name,
-            price = EXCLUDED.price
-        """, (name.strip(), details.get("set", "Unknown Set"), details.get("price", 0.0)))
+    # ✅ Use Bulk Insert for Maximum Speed
+    insert_data = [
+        (name.strip(), details.get("set", "Unknown Set"), details.get("price", 0.0))
+        for name, details in data.items()
+    ]
+
+    query = """
+        INSERT INTO cards (name, set_name, price)
+        VALUES %s
+        ON CONFLICT (name) DO UPDATE SET 
+        set_name = EXCLUDED.set_name,
+        price = EXCLUDED.price
+    """
+
+    from psycopg2.extras import execute_values
+    execute_values(cursor, query, insert_data)
 
     conn.commit()
     cursor.close()
     conn.close()
-    print("✅ Data successfully stored in PostgreSQL!")
+    print(f"✅ Stored {len(insert_data)} cards in PostgreSQL!")
 
 @app.post("/update-database/")
 def update_database(card_names: str = Query(..., description="Comma-separated list of card names")):
     """Fetch updated data for specific cards from the main API and store it in PostgreSQL."""
     return fetch_and_store_data(card_names)
-
-@app.post("/populate-database/")
-def populate_database():
-    """Fetch all card names from the main API, then request their prices in batches."""
-    print("🔍 Fetching all available card names from the API...")
-
-    try:
-        response = requests.get(f"{API_SOURCE_URL}?list_all_cards=true", timeout=120)
-        
-        if response.status_code != 200:
-            print(f"⚠️ Failed to fetch card list: {response.status_code}")
-            return {"error": f"API request failed: {response.status_code}"}
-
-        all_card_names = response.json().get("all_cards", [])  # ✅ Expecting {"all_cards": ["Black Lotus", "Mox Emerald", ...]}
-
-        if not all_card_names:
-            print("❌ No cards found in the main API response.")
-            return {"error": "No cards found in API response."}
-
-        print(f"✅ Retrieved {len(all_card_names)} card names. Processing in batches...")
-
-        # ✅ Fetch and store data in batches of 50
-        batch_size = 50
-        for i in range(0, len(all_card_names), batch_size):
-            batch = ",".join(all_card_names[i:i + batch_size])
-            fetch_and_store_data(batch)
-
-        print("✅ Database populated successfully!")
-        return {"message": "Database populated successfully!"}
-
-    except requests.exceptions.RequestException as e:
-        print(f"❌ API request failed: {str(e)}")
-        return {"error": str(e)}
